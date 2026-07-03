@@ -1,0 +1,32 @@
+{
+  "name": "snapbooth",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "@react-three/drei": "^10.0.6",
+    "@react-three/fiber": "^9.1.2",
+    "gifenc": "^1.0.3",
+    "gsap": "^3.13.0",
+    "next": "15.3.1",
+    "peerjs": "^1.5.5",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "three": "^0.176.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/three": "^0.176.0",
+    "typescript": "^5.8.3"
+  }
+}
