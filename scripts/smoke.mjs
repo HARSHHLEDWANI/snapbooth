@@ -34,26 +34,17 @@ page.on('requestfailed', (r) => {
 const step = (s) => console.log('▶ ' + s);
 
 try {
-  step('load landing');
+  step('load landing (hub street)');
   await page.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
   await new Promise((r) => setTimeout(r, 2500));
-
-  // name prompt -> skip
-  step('dismiss name prompt');
-  const skip = await page.$$('button');
-  for (const b of skip) {
-    const t = await page.evaluate((el) => el.textContent, b);
-    if (t && t.toLowerCase().includes('skip')) { await b.click(); break; }
-  }
-  await new Promise((r) => setTimeout(r, 500));
   await page.screenshot({ path: 'scripts/shot-1-landing.png' });
 
-  // enter booth
-  step('click enter the booth');
+  // enter booth via the HUD button
+  step('click the photobooth');
   const btns = await page.$$('button');
   for (const b of btns) {
     const t = await page.evaluate((el) => el.textContent, b);
-    if (t && t.toLowerCase().includes('enter the booth')) { await b.click(); break; }
+    if (t && t.toLowerCase().includes('the photobooth')) { await b.click(); break; }
   }
   // wait for capture view (control deck) — allow for GSAP dolly
   step('wait for capture view + camera');

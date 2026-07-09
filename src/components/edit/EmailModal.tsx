@@ -1,12 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { APP_NAME } from '@/config/app';
-import { useBoothStore } from '@/store/useBoothStore';
 import { emailStrip, emailSizedDataUrl, isValidEmail } from '@/lib/export/deliver';
 import { toast } from '@/components/ui/toast';
 
-export function EmailModal({ getCanvas, onClose }: { getCanvas: () => Promise<HTMLCanvasElement>; onClose: () => void }) {
-  const userName = useBoothStore((s) => s.userName);
+export function EmailModal({ getCanvas, onSent, onClose }: {
+  getCanvas: () => Promise<HTMLCanvasElement>;
+  onSent?: () => void;
+  onClose: () => void;
+}) {
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -16,9 +18,9 @@ export function EmailModal({ getCanvas, onClose }: { getCanvas: () => Promise<HT
     try {
       const canvas = await getCanvas();
       const dataUrl = await emailSizedDataUrl(canvas, 800);
-      const res = await emailStrip(email.trim(), dataUrl, userName || 'a friend');
+      const res = await emailStrip(email.trim(), dataUrl);
       toast(res.message, res.ok ? 'ok' : 'err');
-      if (res.ok) onClose();
+      if (res.ok) { onSent?.(); onClose(); }
     } catch {
       toast('could not send right now', 'err');
     } finally {
@@ -34,6 +36,7 @@ export function EmailModal({ getCanvas, onClose }: { getCanvas: () => Promise<HT
         <p>we’ll email a copy of your {APP_NAME} strip.</p>
         <input autoFocus type="email" value={email} placeholder="you@example.com"
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
+        <span className="privacy-note">used once to send this email, then forgotten — never stored, never logged</span>
         <div className="em-actions">
           <button className="btn btn-ghost" onClick={onClose}>cancel</button>
           <button className="btn btn-primary" onClick={send} disabled={sending}>{sending ? 'sending…' : 'send ♡'}</button>
@@ -44,6 +47,7 @@ export function EmailModal({ getCanvas, onClose }: { getCanvas: () => Promise<HT
         .em { position: relative; width: min(380px, 94%); padding: 24px; display: flex; flex-direction: column; gap: 8px; text-align: center; }
         .em h3 { font-size: 1.3rem; }
         .em input { padding: 12px; border: 2.5px dashed var(--pink); border-radius: 14px; background: var(--cream); color: var(--brown); text-align: center; }
+        .privacy-note { font-size: 0.68rem; color: var(--brown-soft); font-weight: 600; }
         .em-actions { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
       `}</style>
     </div>

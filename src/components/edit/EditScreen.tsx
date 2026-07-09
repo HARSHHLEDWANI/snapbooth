@@ -11,8 +11,8 @@ import { Decorations } from '@/components/ui/Decorations';
 import { StripPreview, type StripPreviewHandle } from './StripPreview';
 import { EditPanel } from './EditPanel';
 import { EmailModal } from './EmailModal';
-import { useDuoEditSync } from '@/lib/duo/useDuoEditSync';
-import { getActiveRoom } from '@/lib/duo/room';
+import { useDuoEditSync } from '@/lib/room/useDuoEditSync';
+import { getActiveRoom } from '@/lib/room/room';
 
 export function EditScreen() {
   // duo: mirror edit state between the two peers (no-op solo)
@@ -25,28 +25,19 @@ export function EditScreen() {
   const redo = useBoothStore((s) => s.redo);
   const canUndo = useBoothStore((s) => s.past.length > 0);
   const canRedo = useBoothStore((s) => s.future.length > 0);
-  const saveRecentStrip = useBoothStore((s) => s.saveRecentStrip);
   const previewRef = useRef<StripPreviewHandle>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // save a thumbnail to "my strips" once the edit screen opens
-  const savedRef = useRef(false);
+  // warn before leaving while an unsaved strip exists (nothing is stored anywhere)
+  const savedOnce = useRef(false);
   useEffect(() => {
-    if (savedRef.current || !shots.length) return;
-    savedRef.current = true;
-    const t = setTimeout(async () => {
-      try {
-        const canvas = await previewRef.current!.exportCanvas(0.5);
-        const thumb = document.createElement('canvas');
-        thumb.width = 120;
-        thumb.height = (canvas.height / canvas.width) * 120;
-        thumb.getContext('2d')!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-        saveRecentStrip(thumb.toDataURL('image/jpeg', 0.7));
-      } catch {}
-    }, 900);
-    return () => clearTimeout(t);
-  }, [shots.length, saveRecentStrip]);
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!savedOnce.current && shots.length) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [shots.length]);
 
   const exportFull = () => previewRef.current!.exportCanvas(2);
 
@@ -56,6 +47,7 @@ export function EditScreen() {
       const canvas = await exportFull();
       const blob = await canvasToBlob(canvas, 'image/png');
       downloadBlob(blob, stampName('png'));
+      savedOnce.current = true;
       play('success');
       toast('saved to your device! ♡', 'ok');
     } finally { setBusy(false); }
@@ -68,6 +60,7 @@ export function EditScreen() {
       const blob = await canvasToBlob(canvas, 'image/png');
       const ok = await shareImage(blob, stampName('png'));
       if (!ok) { downloadBlob(blob, stampName('png')); toast('sharing not supported — downloaded instead', 'info'); }
+      savedOnce.current = true;
     } finally { setBusy(false); }
   };
 
@@ -90,7 +83,7 @@ export function EditScreen() {
       {duo.active && (
         <div className="duo-edit-chip">
           <span className={`dot ${duo.connected ? 'on' : ''}`} />
-          {duo.connected ? `editing with ${duo.partnerName ?? 'your friend'} 💞` : 'friend left — editing solo'}
+          {duo.connected ? 'editing with your person 💞' : 'they left — editing solo'}
         </div>
       )}
       <div className="edit-body">
@@ -99,7 +92,7 @@ export function EditScreen() {
             <button
               className="btn btn-ghost mini"
               onClick={() => {
-                if (duo.connected) getActiveRoom()?.send({ t: 'retake' });
+                if (duo.connected) getActiveRoom()?.send({ t: 'open-booth' });
                 setPhase('capture');
               }}
             >← retake</button>
@@ -133,7 +126,7 @@ export function EditScreen() {
         }}
       >＋ new strip</button>
 
-      {emailOpen && <EmailModal getCanvas={exportFull} onClose={() => setEmailOpen(false)} />}
+      {emailOpen && <EmailModal getCanvas={exportFull} onSent={() => { savedOnce.current = true; }} onClose={() => setEmailOpen(false)} />}
 
       <style jsx>{`
         .edit-screen { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(180deg, #ffeef4, var(--cream)); }

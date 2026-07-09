@@ -67,26 +67,30 @@ try {
   browserA = await makeBrowser('host', 10);
   const A = await preparePage(browserA, 'host');
 
-  step('host: load + skip name');
+  step('host: load hub street');
   await A.goto(URL, { waitUntil: 'networkidle2', timeout: 60000 });
   await waitHydrated(A);
-  await clickByText(A, 'skip');
-  await new Promise((r) => setTimeout(r, 400));
 
-  step('host: open duo lobby + create room');
-  if (!(await clickByText(A, 'booth for two'))) throw new Error('no duo button');
+  step('host: open the lobby, pick a color, open a room');
+  if (!(await clickByText(A, '💞 open a room'))) throw new Error('no duo button');
   await new Promise((r) => setTimeout(r, 500));
-  if (!(await clickByText(A, 'create our room'))) throw new Error('no create button');
+  if (!(await clickByText(A, '✨ open a room'))) throw new Error('no host button');
   await A.waitForSelector('.link-text', { timeout: 25000 });
   const link = await A.$eval('.link-text', (el) => el.textContent);
-  console.log('   room link:', link);
+  const code = await A.$eval('.code-big', (el) => el.textContent);
+  console.log('   room link:', link, '· code:', code);
 
   step('guest: open the shared link in a second browser');
   browserB = await makeBrowser('guest', 1000);
   const B = await preparePage(browserB, 'guest');
   await B.goto(link, { waitUntil: 'networkidle2', timeout: 60000 });
   await waitHydrated(B);
-  await clickByText(B, 'skip');
+
+  step('both connected on the street — host walks into the booth, guest should follow');
+  await A.waitForFunction(() => document.querySelector('.room-chip'), { timeout: 40000 });
+  await B.waitForFunction(() => document.querySelector('.room-chip'), { timeout: 40000 });
+  await A.screenshot({ path: 'scripts/duo-1-hosting.png' });
+  if (!(await clickByText(A, 'the photobooth'))) throw new Error('no booth button on host');
 
   step('waiting for both to land in capture…');
   await A.waitForSelector('.deck', { timeout: 40000 });
@@ -107,7 +111,13 @@ try {
   const snapBtns = await A.$$('button[aria-label*="take photos"]');
   await snapBtns[0].click();
 
-  step('waiting for both edit screens (countdown + exchange)…');
+  step('waiting for the mutual confirm bar (fire_at countdown + frame exchange)…');
+  await A.waitForSelector('.confirm-bar', { timeout: 90000 });
+  await B.waitForSelector('.confirm-bar', { timeout: 90000 });
+  step('host: ✨ print it (both should print)');
+  if (!(await clickByText(A, 'print it'))) throw new Error('no print button');
+
+  step('waiting for both edit screens…');
   await A.waitForSelector('.strip-canvas', { timeout: 90000 });
   await B.waitForSelector('.strip-canvas', { timeout: 90000 });
   await new Promise((r) => setTimeout(r, 2500));

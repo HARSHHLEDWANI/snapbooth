@@ -211,9 +211,11 @@ export async function compositeStrip(
     ctx.globalAlpha = 1;
   }
   if (edit.showFooter) {
+    // optional "pune ↔ toronto" — typed by hand in the frame tab, never detected
+    const cities = edit.cities.trim();
     ctx.font = `700 ${Math.round(W * 0.028)}px 'Quicksand', sans-serif`;
     ctx.globalAlpha = 0.6;
-    ctx.fillText(`♡ ${APP_NAME}`, cx, canvas.height - pad * 0.5);
+    ctx.fillText(cities ? `${cities} · ♡ ${APP_NAME}` : `♡ ${APP_NAME}`, cx, canvas.height - pad * 0.5);
     ctx.globalAlpha = 1;
   }
 

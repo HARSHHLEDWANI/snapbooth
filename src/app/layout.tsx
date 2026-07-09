@@ -24,7 +24,8 @@ const hand = Gochi_Hand({
 
 export const metadata: Metadata = {
   title: `${APP_NAME} — ${APP_TAGLINE}`,
-  description: 'A cute 3D online photobooth. Snap a strip, add stickers, share the cuteness.',
+  description:
+    'A tiny pastel 3D world for long-distance couples: photobooth for two, quizzes, drawing, debates and arcade duels — peer-to-peer, nothing stored, nothing sold.',
 };
 
 export const viewport: Viewport = {

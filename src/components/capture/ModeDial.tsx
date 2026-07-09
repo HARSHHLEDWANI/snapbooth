@@ -4,11 +4,11 @@ import { useBoothStore } from '@/store/useBoothStore';
 import { play } from '@/lib/sound/sound';
 
 /** The capture-mode dial. Rotates a pointer to the selected mode.
- *  In duo rooms, boomerang & smile are solo-only and hidden. */
+ *  In duo rooms, smile trigger is solo-only and hidden (boomerang duets!). */
 export function ModeDial({ disabled, duo }: { disabled?: boolean; duo?: boolean }) {
   const mode = useBoothStore((s) => s.captureMode);
   const setMode = useBoothStore((s) => s.setMode);
-  const modes = duo ? MODES.filter((m) => m.id !== 'boomerang' && m.id !== 'smile') : MODES;
+  const modes = duo ? MODES.filter((m) => m.id !== 'smile') : MODES;
   let idx = modes.findIndex((m) => m.id === mode);
   if (idx === -1) idx = 0; // mode not available in duo — show first
   const active = modes[idx];

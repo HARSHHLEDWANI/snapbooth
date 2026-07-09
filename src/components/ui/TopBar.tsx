@@ -2,7 +2,7 @@
 import { APP_NAME } from '@/config/app';
 import { useBoothStore } from '@/store/useBoothStore';
 import { setMuted as persistMute } from '@/lib/sound/sound';
-import { getActiveRoom } from '@/lib/duo/room';
+import { getActiveRoom } from '@/lib/room/room';
 
 /** Slim floating top bar: brand, mirror toggle, mute, exit. */
 export function TopBar() {

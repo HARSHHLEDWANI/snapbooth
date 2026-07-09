@@ -109,8 +109,13 @@ export function EditPanel() {
               onChange={(e) => setEditRaw({ caption: e.target.value })}
               onFocus={beginEdit}
             />
+            <span className="label-spaced">y o u r&nbsp;&nbsp;c i t i e s</span>
+            <input className="text-in" value={edit.cities} maxLength={30} placeholder="pune ↔ toronto (optional)"
+              onChange={(e) => setEditRaw({ cities: e.target.value })}
+              onFocus={beginEdit}
+            />
             <label className="toggle"><input type="checkbox" checked={edit.showDate} onChange={(e) => patchEdit({ showDate: e.target.checked })} /> date stamp</label>
-            <label className="toggle"><input type="checkbox" checked={edit.showFooter} onChange={(e) => patchEdit({ showFooter: e.target.checked })} /> show ♡ snapbooth footer</label>
+            <label className="toggle"><input type="checkbox" checked={edit.showFooter} onChange={(e) => patchEdit({ showFooter: e.target.checked })} /> show footer line</label>
           </div>
         )}
 

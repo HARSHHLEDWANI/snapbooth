@@ -1,38 +1,65 @@
 'use client';
 
 /**
- * room.ts — the "booth for two" plumbing. Peer-to-peer over WebRTC using the
- * free public PeerJS cloud for signalling (no backend of our own).
+ * room.ts — the shared two-person room plumbing. Peer-to-peer over WebRTC
+ * using the free public PeerJS cloud for signalling only (no backend of our
+ * own, nothing stored anywhere). Swap the broker by editing newPeer().
  *
- *   host: creates a room  →  peer id  "snapbooth-<code>"
- *   guest: opens the shared link (?room=<code>) and connects.
+ *   host:  creates a room →  peer id  "twoplace-v1-<code>"
+ *   guest: enters the 5-letter code and connects; claims "<id>-g" so the
+ *          host can media-call back deterministically.
  *
  * One data connection carries the JSON protocol below; one media call carries
- * each person's live webcam so both see each other in the booth.
+ * each person's live webcam. The SAME room is reused by the photobooth and
+ * every activity (quiz/draw/debate/arcade) — activities multiplex over the
+ * `act` message namespace.
  *
- * Design: both sides run the SAME capture logic. Whoever presses SNAP
- * broadcasts `capture-start`; both run the countdown locally, shoot at the
- * same beats, and exchange downscaled frames. Every combined shot is built
- * host-left/guest-right on BOTH ends, so the two strips are identical.
+ * Captures: the host is the authoritative clock (see clock.ts for the
+ * NTP-style offset protocol). Whoever presses SNAP causes the HOST to
+ * broadcast `capture-start { fireAt }` in host-clock time; both sides run
+ * the countdown locally, shoot their own webcam at native resolution at the
+ * same instant, then exchange compressed frames so both end up with the
+ * full combined strip (host-left / guest-right on BOTH ends).
+ *
+ * Rooms are ephemeral: when either tab closes, the peer dies and the code is
+ * useless. Nothing persists.
  */
 
 import type Peer from 'peerjs';
 import type { DataConnection, MediaConnection } from 'peerjs';
-import type { CaptureMode, EditState } from '@/store/useBoothStore';
+import type { CaptureMode, EditState, ActivityId } from '@/store/useBoothStore';
 import type { FilterId } from '@/lib/shaders/filters';
+import type { AccentId } from '@/config/app';
+import { ClockSync, type PingMsg, type PongMsg } from './clock';
 
 export type DuoRole = 'host' | 'guest';
 
 // ── protocol ──────────────────────────────────────────────────────────────
 export type DuoMessage =
-  | { t: 'hello'; name: string }
-  | { t: 'capture-start'; mode: CaptureMode; countdown: number; shots: number }
+  | { t: 'hello'; accent: AccentId }
+  | PingMsg
+  | PongMsg
+  // capture ­— fireAt is in HOST-clock ms (see clock.ts)
+  | { t: 'capture-request'; mode: CaptureMode; countdown: number } // guest → host
+  | { t: 'capture-start'; mode: CaptureMode; countdown: number; fireAt: number; retake?: boolean }
   | { t: 'frame'; index: number; jpeg: string }
+  | { t: 'gif-frame'; index: number; jpeg: string; total: number }
   | { t: 'burst-pick'; indices: number[] }
   | { t: 'filter'; id: FilterId }
   | { t: 'go-edit' }
   | { t: 'edit'; edit: EditState }
-  | { t: 'retake' }
+  // mutual retake handshake — either side offers, the other agrees/declines
+  | { t: 'retake-offer' }
+  | { t: 'retake-agree' }
+  | { t: 'retake-decline' }
+  // in-room delight
+  | { t: 'reaction'; emoji: string }
+  | { t: 'pose'; index: number }
+  // navigation — pull both people into an activity or back to the booth
+  | { t: 'open-activity'; a: ActivityId }
+  | { t: 'open-booth' }
+  // activity namespace — each activity speaks through its own `a` channel
+  | { t: 'act'; a: ActivityId; m: unknown }
   | { t: 'bye' };
 
 type Listener = (msg: DuoMessage) => void;
@@ -42,6 +69,8 @@ export interface DuoRoom {
   code: string;
   /** resolves when the data channel is open */
   ready: Promise<void>;
+  /** cross-peer clock agreement (host-authoritative) */
+  clock: ClockSync;
   send: (msg: DuoMessage) => void;
   on: (fn: Listener) => () => void;
   /** provide the local webcam; establishes/answers the media call */
@@ -52,8 +81,9 @@ export interface DuoRoom {
   destroy: () => void;
 }
 
-const PREFIX = 'snapbooth-v1-';
+const PREFIX = 'twoplace-v1-';
 
+/** 5 chars from an unambiguous alphabet — no 0/O, no 1/I/L. */
 export const makeRoomCode = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
 
@@ -81,18 +111,31 @@ function wire(
   connReady: Promise<void>,
 ): DuoRoom {
   const listeners = new Set<Listener>();
+  // messages that arrive before any React listener mounts are buffered and
+  // replayed to the first subscriber — avoids losing `hello` etc. to races
+  const backlog: DuoMessage[] = [];
+  const clock = new ClockSync(role === 'host');
   let localStream: MediaStream | null = null;
   let call: MediaConnection | null = null;
   let pendingCall: MediaConnection | null = null;
   let remoteStream: MediaStream | null = null;
   const remoteStreamFns = new Set<(s: MediaStream) => void>();
 
+  const send = (msg: DuoMessage) => { if (conn.open) conn.send(JSON.stringify(msg)); };
+
   conn.on('data', (data) => {
     try {
       const msg = (typeof data === 'string' ? JSON.parse(data) : data) as DuoMessage;
+      // clock plumbing is handled here so callers never see it
+      if (msg.t === 'ping') { send(clock.answer(msg)); return; }
+      if (msg.t === 'pong') { clock.absorb(msg); return; }
+      if (listeners.size === 0) { backlog.push(msg); return; }
       listeners.forEach((fn) => fn(msg));
     } catch { /* ignore malformed */ }
   });
+
+  // guest measures its offset to the host clock as soon as the channel opens
+  connReady.then(() => clock.start(send));
 
   const handleCallStream = (c: MediaConnection) => {
     c.on('stream', (s) => {
@@ -116,10 +159,30 @@ function wire(
     role,
     code,
     ready: connReady,
-    send: (msg) => { if (conn.open) conn.send(JSON.stringify(msg)); },
-    on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    clock,
+    send,
+    on: (fn) => {
+      listeners.add(fn);
+      if (backlog.length) {
+        const q = backlog.splice(0, backlog.length);
+        q.forEach((m) => fn(m));
+      }
+      return () => listeners.delete(fn);
+    },
     attachStream: (stream) => {
+      const prev = localStream;
       localStream = stream;
+      if (call && prev !== stream) {
+        // media call already live (e.g. booth → debate) — swap the tracks
+        try {
+          const senders = call.peerConnection?.getSenders() ?? [];
+          stream.getTracks().forEach((track) => {
+            const sender = senders.find((s) => s.track?.kind === track.kind);
+            if (sender) sender.replaceTrack(track);
+          });
+        } catch { /* renegotiation unsupported — keep the old stream */ }
+        return;
+      }
       if (pendingCall) {
         pendingCall.answer(stream);
         call = pendingCall;
@@ -169,7 +232,7 @@ export async function joinRoom(code: string): Promise<DuoRoom> {
   const peer = await newPeer(PREFIX + code + '-g');
   const conn = peer.connect(PREFIX + code, { reliable: true });
   const ready = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('could not reach the room — is your friend still there?')), 15000);
+    const timer = setTimeout(() => reject(new Error('could not reach the room — double-check the code, and make sure your person still has it open')), 15000);
     conn.on('open', () => { clearTimeout(timer); resolve(); });
     peer.on('error', (e) => { clearTimeout(timer); reject(e); });
   });

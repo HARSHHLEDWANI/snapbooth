@@ -5,24 +5,28 @@ import { useEffect } from 'react';
 import { useBoothStore } from '@/store/useBoothStore';
 import { initSound } from '@/lib/sound/sound';
 import { shouldSuggestLite } from '@/lib/device';
-import { Landing } from '@/components/booth3d/Landing';
-import { NamePrompt } from '@/components/ui/NamePrompt';
+import { useRoomSession } from '@/lib/room/useRoomSession';
+import { Landing } from '@/components/hub3d/Landing';
 import { Toaster } from '@/components/ui/toast';
+import { LS_KEYS } from '@/config/app';
 
 // heavy phases are separate chunks
 const CaptureView = dynamic(() => import('@/components/capture/CaptureView').then((m) => m.CaptureView), { ssr: false });
 const EditScreen = dynamic(() => import('@/components/edit/EditScreen').then((m) => m.EditScreen), { ssr: false });
+const ActivityHost = dynamic(() => import('@/components/activities/ActivityHost').then((m) => m.ActivityHost), { ssr: false });
 
 export function Experience() {
   const phase = useBoothStore((s) => s.phase);
-  const nameAsked = useBoothStore((s) => s.nameAsked);
   const hydrate = useBoothStore((s) => s.hydrate);
   const setLite = useBoothStore((s) => s.setLite);
+
+  // one global subscriber for room-level events (hello/bye/navigation)
+  useRoomSession();
 
   useEffect(() => {
     hydrate();
     // suggest lite mode on constrained devices (unless user already chose)
-    if (localStorage.getItem('snapbooth:lite') === null && shouldSuggestLite()) {
+    if (localStorage.getItem(LS_KEYS.liteMode) === null && shouldSuggestLite()) {
       setLite(true);
     }
     const unlock = () => initSound();
@@ -35,7 +39,7 @@ export function Experience() {
       {(phase === 'landing' || phase === 'entering') && <Landing />}
       {phase === 'capture' && <CaptureView />}
       {phase === 'edit' && <EditScreen />}
-      {!nameAsked && <NamePrompt />}
+      {phase === 'activity' && <ActivityHost />}
       <Toaster />
     </>
   );

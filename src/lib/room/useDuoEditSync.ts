@@ -8,7 +8,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useBoothStore } from '@/store/useBoothStore';
-import { getActiveRoom } from '@/lib/duo/room';
+import { getActiveRoom } from '@/lib/room/room';
 
 const THROTTLE_MS = 80;
 
@@ -27,7 +27,7 @@ export function useDuoEditSync() {
         applying.current = true;
         useBoothStore.setState({ edit: msg.edit });
         applying.current = false;
-      } else if (msg.t === 'retake') {
+      } else if (msg.t === 'open-booth') {
         // partner wants a do-over — head back into the booth together
         useBoothStore.getState().setPhase('capture');
       }

@@ -1,6 +1,6 @@
 /** deliver.ts — download / native-share / email of the finished strip. */
 import emailjs from '@emailjs/browser';
-import { APP_NAME, EMAIL_RATE_LIMIT_MS, LS_KEYS } from '@/config/app';
+import { APP_NAME, EMAIL_RATE_LIMIT_MS } from '@/config/app';
 
 export function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', q = 0.95): Promise<Blob> {
   return new Promise((resolve, reject) =>
@@ -44,9 +44,11 @@ export async function shareImage(blob: Blob, filename: string): Promise<boolean>
 
 export const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 
+// rate-limit bookkeeping lives in memory only — nothing about email use is persisted
+let lastEmailAt = 0;
+
 export function emailRateLimited(): number {
-  const last = Number(localStorage.getItem(LS_KEYS.lastEmailAt) || 0);
-  const remaining = EMAIL_RATE_LIMIT_MS - (Date.now() - last);
+  const remaining = EMAIL_RATE_LIMIT_MS - (Date.now() - lastEmailAt);
   return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
 }
 
@@ -65,7 +67,8 @@ export interface EmailResult {
   message: string;
 }
 
-export async function emailStrip(toEmail: string, dataUrl: string, fromName: string): Promise<EmailResult> {
+/** Fire-and-forget: the address goes straight to EmailJS and is never stored or logged. */
+export async function emailStrip(toEmail: string, dataUrl: string): Promise<EmailResult> {
   const serviceId = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID;
   const templateId = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID;
   const publicKey = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY;
@@ -82,14 +85,14 @@ export async function emailStrip(toEmail: string, dataUrl: string, fromName: str
       templateId,
       {
         to_email: toEmail,
-        from_name: fromName || 'a friend',
+        from_name: APP_NAME,
         app_name: APP_NAME,
         message: `Here's your ${APP_NAME} strip! ♡`,
         strip_image: dataUrl, // base64 data URL — see README for template setup
       },
       { publicKey },
     );
-    localStorage.setItem(LS_KEYS.lastEmailAt, String(Date.now()));
+    lastEmailAt = Date.now();
     return { ok: true, message: 'Sent! Check your inbox ♡' };
   } catch (e) {
     return { ok: false, message: `Could not send: ${(e as Error).message || 'unknown error'}` };

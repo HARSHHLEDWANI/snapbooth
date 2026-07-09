@@ -2,16 +2,18 @@
 
 import { create } from 'zustand';
 import { FilterId, NEUTRAL_ADJUST, type AdjustState } from '@/lib/shaders/filters';
-import { LS_KEYS, RECENT_STRIPS_MAX } from '@/config/app';
+import { LS_KEYS, type AccentId } from '@/config/app';
 
-export type Phase = 'landing' | 'entering' | 'capture' | 'printing' | 'edit';
+export type Phase = 'landing' | 'entering' | 'capture' | 'printing' | 'edit' | 'activity';
 export type CaptureMode = 'classic' | 'single' | 'burst' | 'boomerang' | 'smile';
+export type ActivityId = 'quiz' | 'draw' | 'debate' | 'arcade';
 
 export interface DuoState {
   active: boolean;
   role: 'host' | 'guest' | null;
   code: string | null;
-  partnerName: string | null;
+  /** partner's chosen accent color id (synced over the data channel) */
+  partnerAccent: AccentId | null;
   connected: boolean;
 }
 
@@ -48,24 +50,22 @@ export interface EditState {
   caption: string;
   showDate: boolean;
   showFooter: boolean;
+  /** optional "pune ↔ toronto" footer — typed in by hand, never detected/saved */
+  cities: string;
   adjust: AdjustState;
   stickers: Sticker[];
-}
-
-export interface RecentStrip {
-  id: string;
-  thumb: string; // small dataURL
-  createdAt: number;
 }
 
 interface BoothState {
   // ── global ──
   phase: Phase;
+  /** which activity is open when phase === 'activity' */
+  activity: ActivityId | null;
   liteMode: boolean;
   muted: boolean;
   mirror: boolean;
-  userName: string | null;
-  nameAsked: boolean;
+  /** my accent color for this session (never stored) */
+  accent: AccentId;
 
   // ── capture ──
   captureMode: CaptureMode;
@@ -81,20 +81,19 @@ interface BoothState {
   past: EditState[];
   future: EditState[];
 
-  recentStrips: RecentStrip[];
-
-  // ── duo (booth for two) ──
+  // ── duo (rooms) ──
   duo: DuoState;
   setDuo: (patch: Partial<DuoState>) => void;
   resetDuo: () => void;
 
   // ── actions ──
   setPhase: (p: Phase) => void;
+  openActivity: (a: ActivityId) => void;
+  closeActivity: () => void;
   setLite: (v: boolean) => void;
   toggleMute: () => void;
   toggleMirror: () => void;
-  setUserName: (n: string) => void;
-  markNameAsked: () => void;
+  setAccent: (a: AccentId) => void;
 
   setMode: (m: CaptureMode) => void;
   setFilter: (f: FilterId) => void;
@@ -122,7 +121,6 @@ interface BoothState {
   redo: () => void;
   resetEdit: () => void;
 
-  saveRecentStrip: (thumb: string) => void;
   hydrate: () => void;
   reset: () => void;
 }
@@ -140,6 +138,7 @@ const defaultEdit = (): EditState => ({
   caption: '',
   showDate: true,
   showFooter: true,
+  cities: '',
   adjust: { ...NEUTRAL_ADJUST },
   stickers: [],
 });
@@ -156,11 +155,11 @@ export const useBoothStore = create<BoothState>((set, get) => {
 
   return {
     phase: 'landing',
+    activity: null,
     liteMode: false,
     muted: false,
     mirror: true,
-    userName: null,
-    nameAsked: false,
+    accent: 'pink',
 
     captureMode: 'classic',
     filterId: 'peach',
@@ -173,14 +172,15 @@ export const useBoothStore = create<BoothState>((set, get) => {
     edit: defaultEdit(),
     past: [],
     future: [],
-    recentStrips: [],
 
-    duo: { active: false, role: null, code: null, partnerName: null, connected: false },
+    duo: { active: false, role: null, code: null, partnerAccent: null, connected: false },
     setDuo: (patch) => set((s) => ({ duo: { ...s.duo, ...patch } })),
     resetDuo: () =>
-      set({ duo: { active: false, role: null, code: null, partnerName: null, connected: false } }),
+      set({ duo: { active: false, role: null, code: null, partnerAccent: null, connected: false } }),
 
     setPhase: (p) => set({ phase: p }),
+    openActivity: (a) => set({ phase: 'activity', activity: a }),
+    closeActivity: () => set({ phase: 'landing', activity: null }),
     setLite: (v) => {
       set({ liteMode: v });
       try { localStorage.setItem(LS_KEYS.liteMode, v ? '1' : '0'); } catch {}
@@ -195,11 +195,7 @@ export const useBoothStore = create<BoothState>((set, get) => {
       set({ mirror: next });
       try { localStorage.setItem(LS_KEYS.mirror, next ? '1' : '0'); } catch {}
     },
-    setUserName: (n) => {
-      set({ userName: n, nameAsked: true });
-      try { localStorage.setItem(LS_KEYS.name, n); } catch {}
-    },
-    markNameAsked: () => set({ nameAsked: true }),
+    setAccent: (a) => set({ accent: a }),
 
     setMode: (m) => set({ captureMode: m }),
     setFilter: (f) => set({ filterId: f }),
@@ -258,31 +254,16 @@ export const useBoothStore = create<BoothState>((set, get) => {
       }),
     resetEdit: () => set({ edit: defaultEdit(), past: [], future: [] }),
 
-    saveRecentStrip: (thumb) => {
-      const strip: RecentStrip = { id: crypto.randomUUID(), thumb, createdAt: Date.now() };
-      const next = [strip, ...get().recentStrips].slice(0, RECENT_STRIPS_MAX);
-      set({ recentStrips: next });
-      try {
-        localStorage.setItem(LS_KEYS.recentStrips, JSON.stringify(next));
-      } catch {}
-    },
-
     hydrate: () => {
       if (typeof window === 'undefined') return;
       try {
-        const name = localStorage.getItem(LS_KEYS.name);
         const muted = localStorage.getItem(LS_KEYS.muted) === '1';
         const mirrorRaw = localStorage.getItem(LS_KEYS.mirror);
         const lite = localStorage.getItem(LS_KEYS.liteMode) === '1';
-        const recentRaw = localStorage.getItem(LS_KEYS.recentStrips);
         set({
-          userName: name,
-          nameAsked: !!name,
           muted,
           mirror: mirrorRaw === null ? true : mirrorRaw === '1',
           liteMode: lite,
-          recentStrips: recentRaw ? JSON.parse(recentRaw) : [],
-          edit: name ? { ...defaultEdit(), caption: name } : defaultEdit(),
         });
       } catch {}
     },
@@ -290,11 +271,12 @@ export const useBoothStore = create<BoothState>((set, get) => {
     reset: () =>
       set({
         phase: 'landing',
+        activity: null,
         shots: [],
         burstPool: [],
         boomerangUrl: null,
         isCapturing: false,
-        edit: get().userName ? { ...defaultEdit(), caption: get().userName! } : defaultEdit(),
+        edit: defaultEdit(),
         past: [],
         future: [],
       }),

@@ -3,13 +3,15 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { useBoothStore, type Shot } from '@/store/useBoothStore';
+import { useBoothStore, type Shot, type CaptureMode } from '@/store/useBoothStore';
+import { accentById } from '@/config/app';
 import { useCamera } from '@/lib/capture/useCamera';
 import { usePreviewPipeline } from '@/lib/capture/usePreviewPipeline';
 import { grabRawFrame, renderFilteredToDataURL } from '@/lib/capture/frameGrab';
-import { getActiveRoom, combineFrames, downscaleForWire, type DuoMessage } from '@/lib/duo/room';
+import { getActiveRoom, combineFrames, downscaleForWire, type DuoMessage } from '@/lib/room/room';
 import { play } from '@/lib/sound/sound';
 import { prefersReducedMotion } from '@/lib/device';
+import { POSE_IDEAS } from './poseIdeas';
 import { FilterRail } from './FilterRail';
 import { ModeDial } from './ModeDial';
 import { CameraError } from './CameraError';
@@ -20,9 +22,13 @@ import { TopBar } from '@/components/ui/TopBar';
 
 const InteriorScene = dynamic(() => import('@/components/booth3d/InteriorScene'), { ssr: false });
 
-type Sub = 'idle' | 'running' | 'burst-select' | 'burst-wait' | 'gif-encoding' | 'gif-result' | 'printing';
+type Sub = 'idle' | 'running' | 'confirm' | 'burst-select' | 'burst-wait' | 'gif-encoding' | 'gif-result' | 'printing';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** gap after each shot for the whir + film-slide beat */
+const SHOT_GAP_MS = 1500;
+const REACTIONS = ['❤️', '😂', '😮', '🥺', '🔥', '👏'];
 
 export function CaptureView() {
   const { videoRef, status, error, cameras, start, flip } = useCamera();
@@ -31,11 +37,11 @@ export function CaptureView() {
 
   const store = useBoothStore;
   const mode = useBoothStore((s) => s.captureMode);
-  const mirror = useBoothStore((s) => s.mirror);
   const liteMode = useBoothStore((s) => s.liteMode);
   const countdownSeconds = useBoothStore((s) => s.countdownSeconds);
   const shots = useBoothStore((s) => s.shots);
   const duo = useBoothStore((s) => s.duo);
+  const accent = useBoothStore((s) => s.accent);
   const setCountdown = useBoothStore((s) => s.setCountdown);
   const addShot = useBoothStore((s) => s.addShot);
   const replaceLastShot = useBoothStore((s) => s.replaceLastShot);
@@ -54,16 +60,25 @@ export function CaptureView() {
   const [smile, setSmile] = useState(0);
   const [gifProgress, setGifProgress] = useState(0);
   const [note, setNote] = useState<string | null>(null);
+  const [poseIdx, setPoseIdx] = useState<number | null>(null);
+  const [floats, setFloats] = useState<{ id: number; emoji: string; left: number }[]>([]);
+  const [retakeAsk, setRetakeAsk] = useState(false); // partner offered a redo
+  const [retakeWait, setRetakeWait] = useState(false); // we offered, waiting
   const numRef = useRef<HTMLDivElement | null>(null);
   const reduced = useRef(false);
   const subRef = useRef<Sub>('idle');
   subRef.current = sub;
+  const poseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const floatSeq = useRef(0);
 
   const { canvasRef: previewCanvasRef } = usePreviewPipeline(videoRef, remoteVideoRef, status === 'ready' || duo.connected);
 
   // partner frames arriving over the wire, keyed by shot index
   const remoteFrames = useRef<Map<number, string>>(new Map());
   const remoteWaiters = useRef<Map<number, (s: string) => void>>(new Map());
+  // partner boomerang frames
+  const remoteGif = useRef<Map<number, string>>(new Map());
+  const remoteGifTotal = useRef(0);
 
   // ── camera + duo stream wiring ──
   useEffect(() => {
@@ -122,30 +137,33 @@ export function CaptureView() {
     setTimeout(() => setFlash(false), 150);
   }, []);
 
-  const popNumber = useCallback(async (n: number) => {
-    setCountNum(n);
-    play('countdown');
-    await new Promise<void>((resolve) => {
-      if (reduced.current || !numRef.current) { setTimeout(resolve, 750); return; }
-      gsap.fromTo(numRef.current,
-        { scale: 0.3, y: -24, opacity: 0 },
-        { scale: 1, y: 0, opacity: 1, duration: 0.34, ease: 'elastic.out(1, 0.5)',
-          onComplete: () => gsap.to(numRef.current, { scale: 0.86, opacity: 0, duration: 0.24, delay: 0.4, onComplete: resolve }) });
-    });
-  }, []);
-
-  const countdown = useCallback(async (secs: number) => {
-    for (let n = secs; n >= 1; n--) {
-      if (n <= 3) await popNumber(n);
-      else { setCountNum(n); play('countdown'); await wait(750); }
+  /**
+   * Schedule-driven countdown: counts down so it ENDS at `fireLocal`
+   * (a local-clock timestamp). In duo mode both peers compute fireLocal from
+   * the same host-clock `fire_at`, so the shutter beat lands together.
+   */
+  const scheduledCountdown = useCallback(async (fireLocal: number) => {
+    for (;;) {
+      const msLeft = fireLocal - Date.now();
+      if (msLeft <= 60) break;
+      const n = Math.ceil(msLeft / 1000);
+      setCountNum(n);
+      play('countdown');
+      if (n <= 3 && !reduced.current && numRef.current) {
+        gsap.fromTo(numRef.current,
+          { scale: 0.3, y: -24, opacity: 0 },
+          { scale: 1, y: 0, opacity: 1, duration: 0.34, ease: 'elastic.out(1, 0.5)' });
+      }
+      // sleep to this second's boundary, then re-check
+      await wait(Math.max(40, fireLocal - (n - 1) * 1000 - Date.now()));
     }
     setCountNum(null);
-  }, [popNumber]);
+  }, []);
 
-  const pushThumb = useCallback((raw: string) => {
+  const pushThumb = useCallback((raw: string, replace = false) => {
     renderFilteredToDataURL(raw, { filterId: store.getState().filterId })
-      .then((t) => setThumbs((p) => [...p, t]))
-      .catch(() => setThumbs((p) => [...p, raw]));
+      .then((t) => setThumbs((p) => (replace ? [...p.slice(0, -1), t] : [...p, t])))
+      .catch(() => setThumbs((p) => (replace ? [...p.slice(0, -1), raw] : [...p, raw])));
   }, []);
 
   const snapLocal = useCallback((): { dataURL: string; width: number; height: number } => {
@@ -153,8 +171,6 @@ export function CaptureView() {
     play('shutter');
     return grabRawFrame(videoRef.current!, store.getState().mirror);
   }, [doFlash]);
-
-  const finish = useCallback(() => setSub('printing'), []);
 
   const waitRemoteFrame = useCallback((index: number, timeout = 12000): Promise<string | null> => {
     const have = remoteFrames.current.get(index);
@@ -170,36 +186,40 @@ export function CaptureView() {
     const isHost = store.getState().duo.role === 'host';
     const wire = await downscaleForWire(localRaw);
     room?.send({ t: 'frame', index, jpeg: wire });
-    setNote('waiting for your friend’s shot…');
+    setNote('waiting for your person’s shot…');
     const partner = await waitRemoteFrame(index);
     setNote(null);
     const combined = await combineFrames(isHost ? wire : partner, isHost ? partner : wire);
     return { id: crypto.randomUUID(), sourceDataURL: combined.dataURL, width: combined.width, height: combined.height };
   }, [waitRemoteFrame]);
 
-  // ── capture sequences ──
-  const runTimed = useCallback(async (n: number, isDuo: boolean) => {
+  // ── capture sequences (all schedule-driven; see lib/room/clock.ts) ──
+  const runTimed = useCallback(async (n: number, isDuo: boolean, fireLocal: number, retake: boolean) => {
     setSub('running');
+    const cdMs = store.getState().countdownSeconds * 1000;
     for (let i = 0; i < n; i++) {
-      await countdown(store.getState().countdownSeconds);
+      await scheduledCountdown(fireLocal + i * (cdMs + SHOT_GAP_MS));
       const raw = snapLocal();
       if (isDuo) {
         const shot = await makeCombined(i, raw.dataURL);
-        addShot(shot);
-        pushThumb(shot.sourceDataURL);
+        if (retake) { replaceLastShot(shot); pushThumb(shot.sourceDataURL, true); }
+        else { addShot(shot); pushThumb(shot.sourceDataURL); }
       } else {
-        addShot({ id: crypto.randomUUID(), sourceDataURL: raw.dataURL, width: raw.width, height: raw.height });
-        pushThumb(raw.dataURL);
+        const shot = { id: crypto.randomUUID(), sourceDataURL: raw.dataURL, width: raw.width, height: raw.height };
+        if (retake) { replaceLastShot(shot); pushThumb(raw.dataURL, true); }
+        else { addShot(shot); pushThumb(raw.dataURL); }
       }
       play('whir');
       await wait(550);
     }
-    finish();
-  }, [countdown, snapLocal, makeCombined, addShot, pushThumb, finish]);
+    // duo strips get a mutual "redo last?" confirm beat before printing
+    if (isDuo) setSub('confirm');
+    else setSub('printing');
+  }, [scheduledCountdown, snapLocal, makeCombined, addShot, replaceLastShot, pushThumb]);
 
-  const runBurst = useCallback(async (isDuo: boolean) => {
+  const runBurst = useCallback(async (isDuo: boolean, fireLocal: number) => {
     setSub('running');
-    await countdown(store.getState().countdownSeconds);
+    await scheduledCountdown(fireLocal);
     const locals: string[] = [];
     for (let i = 0; i < 8; i++) {
       const raw = snapLocal();
@@ -231,26 +251,9 @@ export function CaptureView() {
       setBurstPool(pool);
       setSub('burst-select');
     }
-  }, [countdown, snapLocal, waitRemoteFrame, setBurstPool]);
+  }, [scheduledCountdown, snapLocal, waitRemoteFrame, setBurstPool]);
 
-  const runBoomerang = useCallback(async () => {
-    setSub('running');
-    await countdown(Math.min(store.getState().countdownSeconds, 3));
-    const src = previewCanvasRef.current!;
-    const frames: { data: Uint8ClampedArray; width: number; height: number }[] = [];
-    const rw = 320;
-    const rh = Math.round((src.height / src.width) * rw);
-    const rec = document.createElement('canvas');
-    rec.width = rw; rec.height = rh;
-    const rctx = rec.getContext('2d')!;
-    play('whir');
-    for (let i = 0; i < 22; i++) {
-      rctx.drawImage(src, 0, 0, rw, rh);
-      frames.push({ data: rctx.getImageData(0, 0, rw, rh).data, width: rw, height: rh });
-      await wait(70);
-    }
-    doFlash();
-    play('shutter');
+  const encodeGif = useCallback((frames: { data: Uint8ClampedArray; width: number; height: number }[]) => {
     setSub('gif-encoding');
     setGifProgress(0);
     const worker = new Worker(new URL('../../lib/export/gif.worker.ts', import.meta.url));
@@ -265,7 +268,81 @@ export function CaptureView() {
       }
     };
     worker.postMessage({ type: 'encode', frames, delay: 70, boomerang: true }, frames.map((f) => f.data.buffer));
-  }, [countdown, doFlash, setBoomerang, previewCanvasRef]);
+  }, [setBoomerang]);
+
+  /**
+   * Boomerang. Solo: record the filtered preview canvas.
+   * Duet: both sides record their OWN half of the preview for the same 1.5s
+   * window (same fire_at), exchange the frames as small JPEGs, and each end
+   * composes the identical side-by-side loop — host left, guest right.
+   */
+  const runBoomerang = useCallback(async (isDuo: boolean, fireLocal: number) => {
+    setSub('running');
+    await scheduledCountdown(fireLocal);
+    const src = previewCanvasRef.current!;
+    play('whir');
+
+    if (!isDuo) {
+      const frames: { data: Uint8ClampedArray; width: number; height: number }[] = [];
+      const rw = 320;
+      const rh = Math.round((src.height / src.width) * rw);
+      const rec = document.createElement('canvas');
+      rec.width = rw; rec.height = rh;
+      const rctx = rec.getContext('2d')!;
+      for (let i = 0; i < 22; i++) {
+        rctx.drawImage(src, 0, 0, rw, rh);
+        frames.push({ data: rctx.getImageData(0, 0, rw, rh).data, width: rw, height: rh });
+        await wait(70);
+      }
+      doFlash();
+      play('shutter');
+      encodeGif(frames);
+      return;
+    }
+
+    // ── duet ──
+    const isHost = store.getState().duo.role === 'host';
+    const HALF_W = 288, HALF_H = 216;
+    const TOTAL = 22;
+    const rec = document.createElement('canvas');
+    rec.width = HALF_W; rec.height = HALF_H;
+    const rctx = rec.getContext('2d')!;
+    const myHalfX = isHost ? 0 : src.width / 2;
+    const room = getActiveRoom();
+    const mine: string[] = [];
+    for (let i = 0; i < TOTAL; i++) {
+      // my (filtered) half of the split preview
+      rctx.drawImage(src, myHalfX, 0, src.width / 2, src.height, 0, 0, HALF_W, HALF_H);
+      const jpeg = rec.toDataURL('image/jpeg', 0.75);
+      mine.push(jpeg);
+      room?.send({ t: 'gif-frame', index: i, jpeg, total: TOTAL });
+      await wait(70);
+    }
+    doFlash();
+    play('shutter');
+    setNote('trading boomerang frames…');
+    // wait for the partner's frames (or as many as arrive in time)
+    const deadline = Date.now() + 15000;
+    while (remoteGif.current.size < TOTAL && Date.now() < deadline) await wait(120);
+    setNote(null);
+
+    const n = Math.min(mine.length, remoteGif.current.size || 0);
+    if (n < 4) { setNote('their frames didn’t arrive 🥺 try again?'); setTimeout(() => setNote(null), 2500); setSub('idle'); return; }
+    const comp = document.createElement('canvas');
+    comp.width = HALF_W * 2; comp.height = HALF_H;
+    const cctx = comp.getContext('2d')!;
+    const load = (s: string) => new Promise<HTMLImageElement>((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = s; });
+    const frames: { data: Uint8ClampedArray; width: number; height: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const [a, b] = await Promise.all([load(mine[i]), load(remoteGif.current.get(i)!)]);
+      cctx.drawImage(isHost ? a : b, 0, 0, HALF_W, HALF_H);
+      cctx.drawImage(isHost ? b : a, HALF_W, 0, HALF_W, HALF_H);
+      cctx.fillStyle = 'rgba(255,255,255,0.75)';
+      cctx.fillRect(HALF_W - 1, 0, 2, HALF_H);
+      frames.push({ data: cctx.getImageData(0, 0, comp.width, comp.height).data, width: comp.width, height: comp.height });
+    }
+    encodeGif(frames);
+  }, [scheduledCountdown, doFlash, encodeGif, previewCanvasRef]);
 
   const runSmile = useCallback(async () => {
     setSub('running');
@@ -279,7 +356,7 @@ export function CaptureView() {
       setNote("couldn't load smile mode — using a timer instead ♡");
       await wait(1200);
       setNote(null);
-      await runTimed(4, false);
+      await runTimed(4, false, Date.now() + store.getState().countdownSeconds * 1000, false);
       return;
     }
     let held = 0;
@@ -300,55 +377,148 @@ export function CaptureView() {
       await wait(700);
     }
     detector.close();
-    finish();
-  }, [runTimed, snapLocal, addShot, pushThumb, finish]);
+    setSub('printing');
+  }, [runTimed, snapLocal, addShot, pushThumb]);
 
-  const beginSequence = useCallback((m: typeof mode, isDuo: boolean) => {
-    clearShots();
-    setThumbs([]);
+  const beginSequence = useCallback((m: CaptureMode, isDuo: boolean, fireLocal: number, retake = false) => {
+    if (!retake) { clearShots(); setThumbs([]); }
     remoteFrames.current.clear();
-    if (m === 'boomerang') runBoomerang();
-    else if (m === 'burst') runBurst(isDuo);
+    remoteGif.current.clear();
+    setNote(null);
+    setRetakeAsk(false);
+    setRetakeWait(false);
+    if (m === 'boomerang') runBoomerang(isDuo, fireLocal);
+    else if (m === 'burst') runBurst(isDuo, fireLocal);
     else if (m === 'smile') runSmile();
-    else runTimed(m === 'single' ? 1 : 4, isDuo);
+    else runTimed(retake ? 1 : m === 'single' ? 1 : 4, isDuo, fireLocal, retake);
   }, [clearShots, runBoomerang, runBurst, runSmile, runTimed]);
+
+  /** Host: pick fire_at on the shared clock, broadcast, and start locally. */
+  const hostStart = useCallback((m: CaptureMode, cd: number, retake = false) => {
+    const room = getActiveRoom();
+    if (!room) return;
+    const lead = (m === 'boomerang' ? Math.min(cd, 3) : cd) * 1000;
+    // 500ms pad swallows wire latency so the guest never starts "in the past"
+    const fireAt = room.clock.hostNow() + lead + 500;
+    room.send({ t: 'capture-start', mode: m, countdown: cd, fireAt, retake });
+    beginSequence(m, true, room.clock.toLocal(fireAt), retake);
+  }, [beginSequence]);
 
   const startCapture = useCallback(() => {
     if (subRef.current !== 'idle' || status !== 'ready') return;
     play('pop');
     const st = store.getState();
-    const isDuo = st.duo.connected;
-    if (isDuo) {
-      getActiveRoom()?.send({ t: 'capture-start', mode: st.captureMode, countdown: st.countdownSeconds, shots: st.captureMode === 'single' ? 1 : 4 });
+    if (st.duo.connected) {
+      if (st.duo.role === 'host') {
+        hostStart(st.captureMode, st.countdownSeconds);
+      } else {
+        // guest asks the authoritative clock to fire
+        getActiveRoom()?.send({ t: 'capture-request', mode: st.captureMode, countdown: st.countdownSeconds });
+        setNote('syncing your booths…');
+        setTimeout(() => setNote((n) => (n === 'syncing your booths…' ? null : n)), 5000);
+      }
+    } else {
+      const cd = st.captureMode === 'boomerang' ? Math.min(st.countdownSeconds, 3) : st.countdownSeconds;
+      beginSequence(st.captureMode, false, Date.now() + cd * 1000);
     }
-    beginSequence(st.captureMode, isDuo);
-  }, [status, beginSequence]);
+  }, [status, hostStart, beginSequence]);
+
+  // reactions + pose prompts (duo delight)
+  const spawnFloat = useCallback((emoji: string) => {
+    const id = ++floatSeq.current;
+    setFloats((f) => [...f, { id, emoji, left: 12 + Math.random() * 76 }]);
+    setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 2600);
+  }, []);
+
+  const sendReaction = useCallback((emoji: string) => {
+    spawnFloat(emoji);
+    play('pop');
+    getActiveRoom()?.send({ t: 'reaction', emoji });
+  }, [spawnFloat]);
+
+  const showPose = useCallback((index: number) => {
+    setPoseIdx(index);
+    play('pop');
+    if (poseTimer.current) clearTimeout(poseTimer.current);
+    poseTimer.current = setTimeout(() => setPoseIdx(null), 5200);
+  }, []);
+
+  const drawPose = useCallback(() => {
+    const index = Math.floor(Math.random() * POSE_IDEAS.length);
+    getActiveRoom()?.send({ t: 'pose', index });
+    showPose(index);
+  }, [showPose]);
 
   // ── duo message handling ──
   useEffect(() => {
     const room = getActiveRoom();
     if (!room || !duo.connected) return;
     const off = room.on((msg: DuoMessage) => {
-      if (msg.t === 'frame') {
-        remoteFrames.current.set(msg.index, msg.jpeg);
-        const w = remoteWaiters.current.get(msg.index);
-        if (w) { remoteWaiters.current.delete(msg.index); w(msg.jpeg); }
-      } else if (msg.t === 'capture-start' && subRef.current === 'idle') {
-        useBoothStore.getState().setMode(msg.mode);
-        useBoothStore.getState().setCountdown(msg.countdown as 3 | 5 | 10);
-        beginSequence(msg.mode, true);
-      } else if (msg.t === 'filter') {
-        filterSyncGuard.current = true;
-        useBoothStore.getState().setFilter(msg.id);
-        filterSyncGuard.current = false;
-      } else if (msg.t === 'burst-pick') {
-        const pool = useBoothStore.getState().burstPool;
-        setShots(msg.indices.map((i) => pool[i]).filter(Boolean));
-        setSub('printing');
+      switch (msg.t) {
+        case 'frame': {
+          remoteFrames.current.set(msg.index, msg.jpeg);
+          const w = remoteWaiters.current.get(msg.index);
+          if (w) { remoteWaiters.current.delete(msg.index); w(msg.jpeg); }
+          break;
+        }
+        case 'gif-frame':
+          remoteGifTotal.current = msg.total;
+          remoteGif.current.set(msg.index, msg.jpeg);
+          break;
+        case 'capture-start': {
+          if (subRef.current !== 'idle' && subRef.current !== 'confirm') break;
+          const st = useBoothStore.getState();
+          st.setMode(msg.mode);
+          st.setCountdown(msg.countdown as 3 | 5 | 10);
+          beginSequence(msg.mode, true, room.clock.toLocal(msg.fireAt), msg.retake);
+          break;
+        }
+        case 'capture-request':
+          // only the host owns the clock — guests never receive this
+          if (useBoothStore.getState().duo.role === 'host' && subRef.current === 'idle') {
+            useBoothStore.getState().setMode(msg.mode);
+            useBoothStore.getState().setCountdown(msg.countdown as 3 | 5 | 10);
+            hostStart(msg.mode, msg.countdown);
+          }
+          break;
+        case 'filter':
+          filterSyncGuard.current = true;
+          useBoothStore.getState().setFilter(msg.id);
+          filterSyncGuard.current = false;
+          break;
+        case 'burst-pick': {
+          const pool = useBoothStore.getState().burstPool;
+          setShots(msg.indices.map((i) => pool[i]).filter(Boolean));
+          setSub('printing');
+          break;
+        }
+        case 'retake-offer':
+          if (subRef.current === 'confirm') setRetakeAsk(true);
+          break;
+        case 'retake-agree':
+          // both agreed — host reschedules a single-shot redo
+          if (useBoothStore.getState().duo.role === 'host') {
+            hostStart(useBoothStore.getState().captureMode === 'single' ? 'single' : 'classic', useBoothStore.getState().countdownSeconds, true);
+          }
+          break;
+        case 'retake-decline':
+          setRetakeWait(false);
+          setNote('they want to keep it ♡');
+          setTimeout(() => setNote(null), 2200);
+          break;
+        case 'reaction':
+          spawnFloat(msg.emoji);
+          break;
+        case 'pose':
+          showPose(msg.index);
+          break;
+        case 'go-edit':
+          if (subRef.current === 'confirm') setSub('printing');
+          break;
       }
     });
     return off;
-  }, [duo.connected, beginSequence, setShots]);
+  }, [duo.connected, beginSequence, hostStart, setShots, spawnFloat, showPose]);
 
   // filter selection sync (shared vibe in duo)
   const filterSyncGuard = useRef(false);
@@ -361,6 +531,30 @@ export function CaptureView() {
     });
     return unsub;
   }, [duo.connected]);
+
+  // mutual retake: offer / answer
+  const offerRetake = useCallback(() => {
+    setRetakeWait(true);
+    play('pop');
+    getActiveRoom()?.send({ t: 'retake-offer' });
+  }, []);
+
+  const answerRetake = useCallback((yes: boolean) => {
+    setRetakeAsk(false);
+    const st = useBoothStore.getState();
+    if (!yes) { getActiveRoom()?.send({ t: 'retake-decline' }); return; }
+    if (st.duo.role === 'host') {
+      hostStart(st.captureMode === 'single' ? 'single' : 'classic', st.countdownSeconds, true);
+    } else {
+      getActiveRoom()?.send({ t: 'retake-agree' });
+    }
+  }, [hostStart]);
+
+  const confirmPrint = useCallback(() => {
+    play('pop');
+    getActiveRoom()?.send({ t: 'go-edit' });
+    setSub('printing');
+  }, []);
 
   const retakeLast = useCallback(async () => {
     if (!shots.length || sub !== 'running' || duo.connected) return;
@@ -384,6 +578,8 @@ export function CaptureView() {
 
   const busy = sub !== 'idle';
   const use3D = !liteMode;
+  const myAccent = accentById(accent).value;
+  const theirAccent = duo.partnerAccent ? accentById(duo.partnerAccent).value : 'var(--sky)';
 
   return (
     <div className="booth-interior">
@@ -408,10 +604,13 @@ export function CaptureView() {
 
       {/* duo status chip */}
       {duo.active && (
-        <div className="duo-chip" title="booth for two">
+        <div className="duo-chip" title="room for two">
           <span className={`dot ${duo.connected ? 'on' : ''}`} />
-          {duo.connected ? `with ${duo.partnerName ?? 'your friend'} 💞` : 'friend disconnected'}
-          <span className="duo-side">{duo.role === 'host' ? 'you’re on the left' : 'you’re on the right'}</span>
+          {duo.connected ? <>together in <b>{duo.code}</b> 💞</> : 'they disconnected'}
+          <span className="duo-side">
+            <i style={{ background: duo.role === 'host' ? myAccent : theirAccent }} /> left
+            <i style={{ background: duo.role === 'host' ? theirAccent : myAccent, marginLeft: 8 }} /> right
+          </span>
         </div>
       )}
 
@@ -432,7 +631,20 @@ export function CaptureView() {
         </div>
       )}
       {note && <div className="note-pill">{note}</div>}
+      {poseIdx !== null && (
+        <div className="pose-card card grain">
+          <span className="label-spaced">p o s e&nbsp;&nbsp;i d e a</span>
+          <strong>{POSE_IDEAS[poseIdx]}</strong>
+        </div>
+      )}
       <div className={`flash ${flash ? 'on' : ''}`} aria-hidden />
+
+      {/* floating reactions */}
+      <div className="floats" aria-hidden>
+        {floats.map((f) => (
+          <span key={f.id} style={{ left: `${f.left}%` }}>{f.emoji}</span>
+        ))}
+      </div>
 
       {/* film-strip rail */}
       {thumbs.length > 0 && (
@@ -441,6 +653,16 @@ export function CaptureView() {
             // eslint-disable-next-line @next/next/no-img-element
             <img key={i} src={t} alt={`shot ${i + 1}`} className="film-cell" style={{ animationDelay: `${i * 0.05}s` }} />
           ))}
+        </div>
+      )}
+
+      {/* duo side rail: reactions + pose deck */}
+      {duo.connected && (
+        <div className="react-rail">
+          {REACTIONS.map((r) => (
+            <button key={r} onClick={() => sendReaction(r)} aria-label={`react ${r}`}>{r}</button>
+          ))}
+          <button className="pose-btn" onClick={drawPose} disabled={sub === 'running'} aria-label="draw a pose idea">🎴</button>
         </div>
       )}
 
@@ -475,6 +697,27 @@ export function CaptureView() {
         <span className="drag-hint">{use3D ? 'drag to look around · scroll to lean in' : ''}</span>
       </div>
 
+      {/* duo confirm: mutual retake before printing */}
+      {sub === 'confirm' && (
+        <div className="confirm-bar card grain">
+          {retakeWait ? (
+            <span className="cb-note"><span className="pulse-dot" /> asked to redo — waiting for them…</span>
+          ) : retakeAsk ? (
+            <>
+              <span className="cb-note">they’d like to redo the last shot ↺</span>
+              <button className="btn btn-primary" onClick={() => answerRetake(true)}>redo it!</button>
+              <button className="btn btn-ghost" onClick={() => answerRetake(false)}>keep it</button>
+            </>
+          ) : (
+            <>
+              <span className="cb-note">happy with the strip?</span>
+              <button className="btn btn-primary" onClick={confirmPrint}>✨ print it</button>
+              <button className="btn btn-ghost" onClick={offerRetake}>↺ redo last</button>
+            </>
+          )}
+        </div>
+      )}
+
       {sub === 'burst-select' && (
         <BurstSelect
           onDone={(indices) => {
@@ -488,7 +731,7 @@ export function CaptureView() {
         <div className="wait-overlay">
           <div className="wait-card card grain">
             <div className="spin">💞</div>
-            <p>{duo.partnerName ?? 'your friend'} is picking the best 4…</p>
+            <p>your person is picking the best 4…</p>
           </div>
         </div>
       )}
@@ -516,7 +759,8 @@ function StyleBlock() {
       .duo-chip { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: 22; display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.9); border: 2.5px solid var(--brown); border-radius: 999px; padding: 6px 14px; font-weight: 800; font-size: 0.85rem; color: var(--brown); box-shadow: var(--shadow-sm); }
       .duo-chip .dot { width: 10px; height: 10px; border-radius: 50%; background: #ccc; }
       .duo-chip .dot.on { background: #6fcf7c; box-shadow: 0 0 6px #6fcf7c; }
-      .duo-side { font-weight: 600; font-size: 0.72rem; color: var(--brown-soft); border-left: 2px dashed var(--blush); padding-left: 8px; }
+      .duo-side { display: flex; align-items: center; gap: 4px; font-weight: 600; font-size: 0.72rem; color: var(--brown-soft); border-left: 2px dashed var(--blush); padding-left: 8px; }
+      .duo-side i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--brown); }
 
       .flash { position: absolute; inset: 0; z-index: 26; background: #fff; opacity: 0; pointer-events: none; }
       .flash.on { opacity: 0.95; transition: none; }
@@ -529,6 +773,29 @@ function StyleBlock() {
       .smile-bar { width: 130px; height: 12px; background: var(--blush); border-radius: 999px; overflow: hidden; }
       .smile-bar > div { height: 100%; background: var(--pink); transition: width 0.1s linear; }
       .note-pill { position: absolute; z-index: 25; top: 100px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.94); border: 2px dashed var(--pink); border-radius: 16px; padding: 8px 16px; font-size: 0.85rem; font-weight: 700; color: var(--brown); max-width: 86%; text-align: center; }
+
+      .pose-card { position: absolute; z-index: 27; top: 16%; left: 50%; transform: translateX(-50%) rotate(-2deg); padding: 14px 22px; display: flex; flex-direction: column; align-items: center; gap: 4px; animation: pop-in 0.3s ease; }
+      .pose-card strong { font-family: var(--font-display); font-size: 1.3rem; color: var(--pink-deep); }
+
+      .floats { position: absolute; inset: 0; z-index: 27; pointer-events: none; overflow: hidden; }
+      .floats span { position: absolute; bottom: 210px; font-size: 2rem; animation: float-react 2.6s ease-out forwards; }
+      @keyframes float-react {
+        0% { transform: translateY(0) scale(0.6); opacity: 0; }
+        12% { opacity: 1; transform: translateY(-30px) scale(1.15); }
+        100% { transform: translateY(-46vh) scale(0.9) rotate(14deg); opacity: 0; }
+      }
+
+      .react-rail { position: absolute; z-index: 23; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; background: rgba(255,255,255,0.85); border: 2.5px solid var(--brown); border-radius: 999px; padding: 10px 6px; box-shadow: var(--shadow-sm); }
+      .react-rail button { background: none; border: none; font-size: 1.3rem; padding: 3px; border-radius: 50%; transition: transform 0.12s ease; }
+      .react-rail button:hover { transform: scale(1.3); }
+      .react-rail .pose-btn { border-top: 2px dashed var(--blush); border-radius: 0; padding-top: 8px; }
+      .react-rail .pose-btn:disabled { opacity: 0.4; }
+      @media (max-width: 720px) { .react-rail { flex-direction: row; top: auto; bottom: 236px; right: 50%; transform: translateX(50%); padding: 4px 12px; } .react-rail .pose-btn { border-top: none; border-left: 2px dashed var(--blush); padding-top: 3px; padding-left: 10px; } }
+
+      .confirm-bar { position: absolute; z-index: 40; left: 50%; bottom: 210px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 12px 18px; animation: pop-in 0.3s ease; max-width: min(94vw, 560px); flex-wrap: wrap; justify-content: center; }
+      .confirm-bar .cb-note { font-weight: 800; color: var(--brown); font-size: 0.92rem; display: flex; align-items: center; gap: 8px; }
+      .confirm-bar .pulse-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--pink); animation: twinkle 1.2s ease-in-out infinite; }
+      .confirm-bar :global(.btn) { font-size: 0.9rem; padding: 0.5em 1.1em; }
 
       .film-rail { position: absolute; z-index: 22; left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
       @media (max-width: 720px) { .film-rail { flex-direction: row; top: auto; bottom: 232px; left: 50%; transform: translateX(-50%); } }
