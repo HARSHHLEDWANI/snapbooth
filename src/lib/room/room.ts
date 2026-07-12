@@ -93,10 +93,35 @@ export const roomLink = (code: string) =>
 let active: DuoRoom | null = null;
 export const getActiveRoom = () => active;
 
+/**
+ * ICE servers. PeerJS's built-in defaults point at turn.peerjs.com, which no
+ * longer exists — with them, rooms only connect on the same network. STUN
+ * handles friendly NATs; the Metered TURN relay (credentials from
+ * dashboard.metered.ca) is the fallback that makes phone↔phone across
+ * carriers (CGNAT) work. Frames transit the relay encrypted, never stored.
+ */
+function iceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+  ];
+  const username = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const credential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+  if (username && credential) {
+    servers.push(
+      { urls: 'turn:global.relay.metered.ca:80', username, credential },
+      { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username, credential },
+      { urls: 'turn:global.relay.metered.ca:443', username, credential },
+      { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username, credential },
+    );
+  }
+  return servers;
+}
+
 async function newPeer(id?: string): Promise<Peer> {
   const { default: PeerCtor } = await import('peerjs');
   return new Promise((resolve, reject) => {
-    const p = new PeerCtor(id as string, { debug: 1 });
+    const p = new PeerCtor(id as string, { debug: 1, config: { iceServers: iceServers() } });
     const timer = setTimeout(() => reject(new Error('signalling timeout')), 15000);
     p.on('open', () => { clearTimeout(timer); resolve(p); });
     p.on('error', (e) => { clearTimeout(timer); reject(e); });
