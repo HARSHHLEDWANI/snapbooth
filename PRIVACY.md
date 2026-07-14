@@ -29,6 +29,20 @@ answers, votes, and video travel **directly between your two browsers**,
 end-to-end, and are never uploaded anywhere. Room codes are random, single-use,
 and die the instant either tab closes.
 
+One honest footnote: some networks (most mobile carriers) make a direct
+browser-to-browser link impossible. When that happens the encrypted stream is
+passed through a **TURN relay** — a dumb pipe that forwards bytes it cannot
+read (WebRTC traffic is end-to-end encrypted with DTLS-SRTP) and stores
+nothing. It's the postal service, not a photo album.
+
+## the random pictures in some games
+
+"who'd pick this?" and the image roulette show random pictures fetched from
+public image services (loremflickr / picsum, or Unsplash if configured).
+Your browser requests those images directly, the same as loading any webpage
+with pictures on it. Nothing about you is sent along — just a normal image
+request — and nothing you choose is reported back to anyone.
+
 ## the email button
 
 "Email it to yourself" sends the address you type straight to EmailJS (a

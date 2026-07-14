@@ -263,3 +263,234 @@ export function DebateStage({ glow }: { glow: number }) {
     </group>
   );
 }
+
+/** "we decide" — a signpost kiosk whose two arrows can't agree */
+export function DecideKiosk({ glow }: { glow: number }) {
+  const heart = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    if (heart.current) heart.current.position.y = 3.35 + Math.sin(state.clock.elapsedTime * 1.6) * 0.08;
+  });
+  return (
+    <group>
+      {/* ballot-box body with a coin slot */}
+      <RoundedBox args={[1.6, 1.5, 1.3]} radius={0.12} position={[0, 0.75, 0]} castShadow receiveShadow>
+        <meshStandardMaterial color={BUTTER} roughness={0.65} />
+      </RoundedBox>
+      <mesh position={[0, 1.52, 0]}>
+        <boxGeometry args={[0.7, 0.06, 0.16]} />
+        <meshStandardMaterial color={BROWN} />
+      </mesh>
+      {/* the post */}
+      <mesh position={[0, 2.1, 0]} castShadow>
+        <cylinderGeometry args={[0.07, 0.09, 1.6, 10]} />
+        <meshStandardMaterial color={BROWN} />
+      </mesh>
+      {/* two arrows pointing opposite ways */}
+      <group position={[0, 2.55, 0]} rotation={[0, 0, 0.06]}>
+        <RoundedBox args={[1.5, 0.4, 0.12]} radius={0.08} castShadow>
+          <meshStandardMaterial color={PINK} roughness={0.55} />
+        </RoundedBox>
+        <mesh position={[-0.85, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.3, 0.3, 0.12]} />
+          <meshStandardMaterial color={PINK} roughness={0.55} />
+        </mesh>
+        <Text position={[0, 0, 0.09]} fontSize={0.18} anchorX="center" anchorY="middle" color={CREAM}>this way</Text>
+      </group>
+      <group position={[0, 3.0, 0]} rotation={[0, 0, -0.06]}>
+        <RoundedBox args={[1.5, 0.4, 0.12]} radius={0.08} castShadow>
+          <meshStandardMaterial color={SKY} roughness={0.55} />
+        </RoundedBox>
+        <mesh position={[0.85, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.3, 0.3, 0.12]} />
+          <meshStandardMaterial color={SKY} roughness={0.55} />
+        </mesh>
+        <Text position={[0, 0, 0.09]} fontSize={0.18} anchorX="center" anchorY="middle" color={BROWN}>no, this way</Text>
+      </group>
+      {/* the reconciling heart */}
+      <mesh ref={heart} position={[0, 3.35, 0]}>
+        <sphereGeometry args={[0.14, 12, 12]} />
+        <meshStandardMaterial color={PINK} emissive={PINK} emissiveIntensity={glow * 0.8} />
+      </mesh>
+    </group>
+  );
+}
+
+/** "who'd pick this?" — a tiny street gallery wall of polaroids */
+export function PickGallery({ glow }: { glow: number }) {
+  const bulb = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame((state) => {
+    if (bulb.current) bulb.current.emissiveIntensity = glow * (0.8 + Math.sin(state.clock.elapsedTime * 2.2) * 0.3);
+  });
+  const frames: [number, number, string][] = [
+    [-0.62, 1.95, BLUSH], [0.62, 1.95, SKY], [-0.62, 1.05, BUTTER], [0.62, 1.05, '#c8f0dc'],
+  ];
+  return (
+    <group>
+      {/* gallery wall */}
+      <RoundedBox args={[2.4, 2.6, 0.3]} radius={0.1} position={[0, 1.5, 0]} castShadow receiveShadow>
+        <meshStandardMaterial color={CREAM} roughness={0.8} />
+      </RoundedBox>
+      {/* four polaroids */}
+      {frames.map(([x, y, c], i) => (
+        <group key={i} position={[x, y, 0.18]} rotation={[0, 0, (i % 2 ? -1 : 1) * 0.05]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.78, 0.72, 0.03]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.7} />
+          </mesh>
+          <mesh position={[0, 0.06, 0.02]}>
+            <planeGeometry args={[0.64, 0.46]} />
+            <meshStandardMaterial color={c} emissive={c} emissiveIntensity={glow * 0.35} />
+          </mesh>
+        </group>
+      ))}
+      {/* glowing question mark */}
+      <Text position={[0, 3.15, 0.1]} fontSize={0.5} anchorX="center" anchorY="middle" outlineWidth={0.02} outlineColor={BROWN}>
+        ?
+        <meshStandardMaterial ref={bulb} color={PINK} emissive={PINK} emissiveIntensity={glow} toneMapped={false} />
+      </Text>
+      {/* little bench in front */}
+      <mesh position={[0, 0.28, 1]} castShadow>
+        <boxGeometry args={[1.3, 0.1, 0.4]} />
+        <meshStandardMaterial color={BROWN} roughness={0.9} />
+      </mesh>
+      {[-0.5, 0.5].map((x) => (
+        <mesh key={x} position={[x, 0.12, 1]}>
+          <boxGeometry args={[0.08, 0.24, 0.34]} />
+          <meshStandardMaterial color={BROWN} roughness={0.9} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** the hangout — a cozy corner café with steam curling off a giant cup */
+export function HangoutCafe({ glow }: { glow: number }) {
+  const steam = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    if (steam.current) {
+      steam.current.position.y = 3.45 + ((t * 0.35) % 0.5);
+      (steam.current.material as THREE.MeshStandardMaterial).opacity = 0.55 - ((t * 0.35) % 0.5);
+    }
+  });
+  return (
+    <group>
+      {/* café body */}
+      <RoundedBox args={[2.6, 2.4, 2]} radius={0.14} position={[0, 1.2, 0]} castShadow receiveShadow>
+        <meshStandardMaterial color="#c8f0dc" roughness={0.7} />
+      </RoundedBox>
+      {/* warm window */}
+      <mesh position={[-0.45, 1.35, 1.02]}>
+        <planeGeometry args={[1.0, 0.8]} />
+        <meshStandardMaterial color={BUTTER} emissive={BUTTER} emissiveIntensity={glow * 0.8} />
+      </mesh>
+      {/* door */}
+      <mesh position={[0.75, 0.85, 1.02]}>
+        <planeGeometry args={[0.6, 1.3]} />
+        <meshStandardMaterial color={BROWN} roughness={0.8} />
+      </mesh>
+      {/* striped awning */}
+      {Array.from({ length: 5 }).map((_, i) => (
+        <mesh key={i} position={[-1 + i * 0.5, 2.28, 1.16]} rotation={[0.55, 0, 0]}>
+          <boxGeometry args={[0.48, 0.4, 0.04]} />
+          <meshStandardMaterial color={i % 2 ? '#7ed0a8' : CREAM} />
+        </mesh>
+      ))}
+      {/* roof + giant coffee cup */}
+      <RoundedBox args={[2.9, 0.3, 2.3]} radius={0.08} position={[0, 2.55, 0]} castShadow>
+        <meshStandardMaterial color={CREAM} roughness={0.6} />
+      </RoundedBox>
+      <mesh position={[0, 3.05, 0]} castShadow>
+        <cylinderGeometry args={[0.34, 0.26, 0.6, 16]} />
+        <meshStandardMaterial color={PINK} roughness={0.5} />
+      </mesh>
+      <mesh position={[0.42, 3.05, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.14, 0.045, 8, 14]} />
+        <meshStandardMaterial color={PINK} roughness={0.5} />
+      </mesh>
+      <mesh ref={steam} position={[0, 3.45, 0]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color="#ffffff" transparent opacity={0.5} />
+      </mesh>
+      {/* tiny table + two chairs out front */}
+      <mesh position={[-1, 0.45, 1.5]} castShadow>
+        <cylinderGeometry args={[0.3, 0.3, 0.05, 14]} />
+        <meshStandardMaterial color={CREAM} />
+      </mesh>
+      <mesh position={[-1, 0.22, 1.5]}>
+        <cylinderGeometry args={[0.05, 0.07, 0.42, 8]} />
+        <meshStandardMaterial color={BROWN} />
+      </mesh>
+      {[-1.45, -0.55].map((x) => (
+        <mesh key={x} position={[x, 0.22, 1.5]} castShadow>
+          <cylinderGeometry args={[0.14, 0.16, 0.42, 10]} />
+          <meshStandardMaterial color={x < -1 ? PINK : SKY} roughness={0.7} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** "tied together" — the little park: two blobs joined by a ribbon */
+export function RopePark({ glow }: { glow: number }) {
+  const blobA = useRef<THREE.Mesh>(null);
+  const blobB = useRef<THREE.Mesh>(null);
+  const ribbon = useRef<THREE.Mesh>(null);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    // the blobs bounce in counterphase and the ribbon rides their rhythm
+    if (blobA.current) blobA.current.position.y = 0.62 + Math.abs(Math.sin(t * 1.8)) * 0.22;
+    if (blobB.current) blobB.current.position.y = 0.62 + Math.abs(Math.sin(t * 1.8 + Math.PI / 2)) * 0.22;
+    if (ribbon.current) ribbon.current.position.y = 0.72 + (Math.abs(Math.sin(t * 1.8)) + Math.abs(Math.sin(t * 1.8 + Math.PI / 2))) * 0.09;
+  });
+  return (
+    <group>
+      {/* grassy mound */}
+      <mesh position={[0, 0.06, 0]} receiveShadow>
+        <cylinderGeometry args={[1.9, 2.1, 0.24, 20]} />
+        <meshStandardMaterial color="#a8dfc0" roughness={1} />
+      </mesh>
+      {/* tree */}
+      <mesh position={[-1.2, 0.8, -0.5]} castShadow>
+        <cylinderGeometry args={[0.09, 0.13, 1.2, 8]} />
+        <meshStandardMaterial color={BROWN} />
+      </mesh>
+      {([[-1.2, 1.65, -0.5, 0.5], [-1.45, 1.4, -0.45, 0.34], [-0.95, 1.42, -0.55, 0.36]] as const).map(([x, y, z, r], i) => (
+        <mesh key={i} position={[x, y, z]} castShadow>
+          <sphereGeometry args={[r, 12, 12]} />
+          <meshStandardMaterial color="#8fd6ac" roughness={1} />
+        </mesh>
+      ))}
+      {/* the two blobs */}
+      <mesh ref={blobA} position={[-0.6, 0.62, 0.3]} castShadow>
+        <sphereGeometry args={[0.4, 16, 16]} />
+        <meshStandardMaterial color={PINK} roughness={0.55} />
+      </mesh>
+      <mesh ref={blobB} position={[0.6, 0.62, 0.3]} castShadow>
+        <sphereGeometry args={[0.4, 16, 16]} />
+        <meshStandardMaterial color="#7fb5f0" roughness={0.55} />
+      </mesh>
+      {/* ribbon between them, with a bow */}
+      <mesh ref={ribbon} position={[0, 0.72, 0.3]}>
+        <boxGeometry args={[1.1, 0.055, 0.055]} />
+        <meshStandardMaterial color={BUTTER} emissive={BUTTER} emissiveIntensity={glow * 0.4} />
+      </mesh>
+      {([[-0.12, 0.35], [0.12, -0.35]] as const).map(([x, r], i) => (
+        <mesh key={i} position={[x, 0.85, 0.3]} rotation={[0, 0, r + Math.PI / 2]}>
+          <coneGeometry args={[0.09, 0.2, 8]} />
+          <meshStandardMaterial color={BUTTER} />
+        </mesh>
+      ))}
+      {/* park arch sign */}
+      <group position={[1.35, 0, -0.4]}>
+        <mesh position={[0, 1, 0]} castShadow>
+          <cylinderGeometry args={[0.05, 0.06, 2, 8]} />
+          <meshStandardMaterial color={BROWN} />
+        </mesh>
+        <Text position={[0, 2.15, 0]} fontSize={0.24} anchorX="center" anchorY="middle" color={BROWN} outlineWidth={0.02} outlineColor={CREAM}>
+          🎀
+        </Text>
+      </group>
+    </group>
+  );
+}

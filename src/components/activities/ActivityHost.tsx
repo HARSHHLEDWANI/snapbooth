@@ -19,12 +19,20 @@ const Quiz = dynamic(() => import('./quiz/QuizActivity').then((m) => m.QuizActiv
 const Draw = dynamic(() => import('./draw/DrawActivity').then((m) => m.DrawActivity), { ssr: false });
 const Debate = dynamic(() => import('./debate/DebateActivity').then((m) => m.DebateActivity), { ssr: false });
 const Arcade = dynamic(() => import('./arcade/ArcadeActivity').then((m) => m.ArcadeActivity), { ssr: false });
+const Decide = dynamic(() => import('./decide/DecideActivity').then((m) => m.DecideActivity), { ssr: false });
+const Pick = dynamic(() => import('./pick/PickActivity').then((m) => m.PickActivity), { ssr: false });
+const Hangout = dynamic(() => import('./hangout/HangoutActivity').then((m) => m.HangoutActivity), { ssr: false });
+const Rope = dynamic(() => import('./rope/RopeActivity').then((m) => m.RopeActivity), { ssr: false });
 
 const TITLES: Record<string, { emoji: string; title: string }> = {
   quiz: { emoji: '💭', title: 'how well do you know me' },
   draw: { emoji: '🎨', title: 'draw together' },
   debate: { emoji: '👑', title: 'debate club' },
   arcade: { emoji: '🕹️', title: 'mini arcade' },
+  decide: { emoji: '🤝', title: 'we decide' },
+  pick: { emoji: '🖼️', title: 'who’d pick this?' },
+  hangout: { emoji: '☕', title: 'the hangout' },
+  rope: { emoji: '🎀', title: 'tied together' },
 };
 
 /** Props every activity component receives. */
@@ -91,6 +99,10 @@ export function ActivityHost() {
             {activity === 'draw' && <Draw solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
             {activity === 'debate' && <Debate solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
             {activity === 'arcade' && <Arcade solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
+            {activity === 'decide' && <Decide solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
+            {activity === 'pick' && <Pick solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
+            {activity === 'hangout' && <Hangout solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
+            {activity === 'rope' && <Rope solo={false} role={duo.role ?? 'host'} onBoothPic={onBoothPic} />}
           </>
         )}
       </main>

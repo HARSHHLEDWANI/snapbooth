@@ -6,7 +6,7 @@ import { LS_KEYS, type AccentId } from '@/config/app';
 
 export type Phase = 'landing' | 'entering' | 'capture' | 'printing' | 'edit' | 'activity';
 export type CaptureMode = 'classic' | 'single' | 'burst' | 'boomerang' | 'smile';
-export type ActivityId = 'quiz' | 'draw' | 'debate' | 'arcade';
+export type ActivityId = 'quiz' | 'draw' | 'debate' | 'arcade' | 'decide' | 'pick' | 'hangout' | 'rope';
 
 export interface DuoState {
   active: boolean;

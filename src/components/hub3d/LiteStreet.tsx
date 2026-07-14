@@ -9,10 +9,14 @@ import type { StreetDest } from './StreetScene';
 import type { DayTheme } from '@/lib/daynight';
 
 const SPOTS: { dest: StreetDest; emoji: string; name: string; blurb: string }[] = [
+  { dest: 'hangout', emoji: '☕', name: 'the hangout', blurb: 'just be together' },
   { dest: 'draw', emoji: '🎨', name: 'draw together', blurb: 'one canvas, two halves' },
+  { dest: 'decide', emoji: '🤝', name: 'we decide', blurb: 'settle it as one' },
   { dest: 'quiz', emoji: '💭', name: 'know-me quiz', blurb: 'guess each other' },
   { dest: 'booth', emoji: '📸', name: 'photobooth', blurb: 'for one or two' },
+  { dest: 'pick', emoji: '🖼️', name: 'who’d pick this?', blurb: 'bet on their taste' },
   { dest: 'arcade', emoji: '🕹️', name: 'arcade', blurb: 'tiny synced duels' },
+  { dest: 'rope', emoji: '🎀', name: 'tied together', blurb: 'two blobs, one ribbon' },
   { dest: 'debate', emoji: '👑', name: 'debate club', blurb: 'win the crown' },
 ];
 

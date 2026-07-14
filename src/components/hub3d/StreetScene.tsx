@@ -14,19 +14,28 @@ import gsap from 'gsap';
 import { APP_NAME } from '@/config/app';
 import type { ThemeTokens } from '@/lib/daynight';
 import { play } from '@/lib/sound/sound';
-import { BoothMachine, ArcadeCabinet, QuizKiosk, DrawingEasel, DebateStage } from './Machines';
+import {
+  BoothMachine, ArcadeCabinet, QuizKiosk, DrawingEasel, DebateStage,
+  DecideKiosk, PickGallery, HangoutCafe, RopePark,
+} from './Machines';
 
-export type StreetDest = 'booth' | 'quiz' | 'draw' | 'debate' | 'arcade';
+export type StreetDest =
+  | 'booth' | 'quiz' | 'draw' | 'debate' | 'arcade'
+  | 'decide' | 'pick' | 'hangout' | 'rope';
 
-const PAN_MIN = -11.5;
-const PAN_MAX = 11.5;
+const PAN_MIN = -17;
+const PAN_MAX = 17;
 
 export const STREET_SPOTS: { dest: StreetDest; x: number; label: string }[] = [
-  { dest: 'draw', x: -10.5, label: 'easel · draw together' },
-  { dest: 'quiz', x: -5.5, label: 'quiz kiosk · how well do you know me?' },
+  { dest: 'hangout', x: -16, label: 'the hangout · just be together' },
+  { dest: 'draw', x: -12, label: 'easel · draw together' },
+  { dest: 'decide', x: -8, label: 'we decide · settle it as one' },
+  { dest: 'quiz', x: -4, label: 'quiz kiosk · how well do you know me?' },
   { dest: 'booth', x: 0, label: 'photobooth · for one or two' },
-  { dest: 'arcade', x: 5.5, label: 'arcade · tiny synced games' },
-  { dest: 'debate', x: 10.5, label: 'debate club · win the crown' },
+  { dest: 'pick', x: 4, label: 'gallery · who’d pick this?' },
+  { dest: 'arcade', x: 8, label: 'arcade · tiny synced games' },
+  { dest: 'rope', x: 12, label: 'the park · tied together' },
+  { dest: 'debate', x: 16, label: 'debate club · win the crown' },
 ];
 
 function Machine({
@@ -167,16 +176,16 @@ export function StreetScene({ theme, reduced, onBegin, onOpen }: {
 
       {/* ground + street */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
-        <planeGeometry args={[46, 26]} />
+        <planeGeometry args={[64, 26]} />
         <meshStandardMaterial color={theme.ground} roughness={1} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2.8]} receiveShadow>
-        <planeGeometry args={[46, 2.6]} />
+        <planeGeometry args={[64, 2.6]} />
         <meshStandardMaterial color={theme.road} roughness={1} />
       </mesh>
       {/* dashed centre line */}
-      {Array.from({ length: 16 }).map((_, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[-14 + i * 1.9, 0.005, 2.8]}>
+      {Array.from({ length: 22 }).map((_, i) => (
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[-20 + i * 1.9, 0.005, 2.8]}>
           <planeGeometry args={[0.8, 0.12]} />
           <meshStandardMaterial color="#fff8f0" roughness={1} />
         </mesh>
@@ -190,11 +199,15 @@ export function StreetScene({ theme, reduced, onBegin, onOpen }: {
           {s.dest === 'quiz' && <QuizKiosk glow={theme.emissive} />}
           {s.dest === 'draw' && <DrawingEasel glow={theme.emissive} />}
           {s.dest === 'debate' && <DebateStage glow={theme.emissive} />}
+          {s.dest === 'decide' && <DecideKiosk glow={theme.emissive} />}
+          {s.dest === 'pick' && <PickGallery glow={theme.emissive} />}
+          {s.dest === 'hangout' && <HangoutCafe glow={theme.emissive} />}
+          {s.dest === 'rope' && <RopePark glow={theme.emissive} />}
         </Machine>
       ))}
 
       {/* street lamps between the machines */}
-      {[-8, -2.75, 2.75, 8].map((x) => (
+      {[-14, -10, -6, -2, 2, 6, 10, 14].map((x) => (
         <group key={x} position={[x, 0, 1.4]}>
           <mesh castShadow>
             <cylinderGeometry args={[0.05, 0.07, 2.6, 8]} />

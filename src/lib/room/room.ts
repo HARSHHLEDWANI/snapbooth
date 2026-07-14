@@ -120,8 +120,16 @@ function iceServers(): RTCIceServer[] {
 
 async function newPeer(id?: string): Promise<Peer> {
   const { default: PeerCtor } = await import('peerjs');
+  // Optional self-hosted signalling broker (NEXT_PUBLIC_PEER_HOST/PORT/PATH).
+  // Unset = the free PeerJS cloud. The smoke tests point this at a local
+  // `npx peerjs` server so CI never depends on the public broker.
+  const brokerHost = process.env.NEXT_PUBLIC_PEER_HOST;
+  const brokerPort = Number(process.env.NEXT_PUBLIC_PEER_PORT || 443);
+  const broker = brokerHost
+    ? { host: brokerHost, port: brokerPort, path: process.env.NEXT_PUBLIC_PEER_PATH || '/', secure: brokerPort === 443 }
+    : {};
   return new Promise((resolve, reject) => {
-    const p = new PeerCtor(id as string, { debug: 1, config: { iceServers: iceServers() } });
+    const p = new PeerCtor(id as string, { debug: 1, config: { iceServers: iceServers() }, ...broker });
     const timer = setTimeout(() => reject(new Error('signalling timeout')), 15000);
     p.on('open', () => { clearTimeout(timer); resolve(p); });
     p.on('error', (e) => { clearTimeout(timer); reject(e); });

@@ -24,10 +24,14 @@ const HubCanvas = dynamic(() => import('./HubCanvas').then((m) => m.HubCanvas), 
 
 const NAV: { dest: StreetDest; label: string }[] = [
   { dest: 'booth', label: 'photobooth' },
+  { dest: 'hangout', label: 'hangout' },
   { dest: 'quiz', label: 'quiz' },
+  { dest: 'decide', label: 'decide' },
+  { dest: 'pick', label: 'pick' },
   { dest: 'draw', label: 'draw' },
   { dest: 'debate', label: 'debate' },
   { dest: 'arcade', label: 'arcade' },
+  { dest: 'rope', label: 'tied' },
 ];
 
 export function Landing() {

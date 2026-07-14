@@ -24,8 +24,10 @@ arcade. All of it peer-to-peer, all of it free, none of it stored.
 
 ### the hub street
 A little 3D pastel plaza (React Three Fiber, primitives only — no GLB
-downloads): the **photobooth** in the middle, an **arcade cabinet**, a **quiz
-kiosk**, a **drawing easel**, and a **debate stage**. Scroll/drag pans the
+downloads): the **photobooth** in the middle, a **cozy hangout café**, an
+**arcade cabinet**, a **quiz kiosk**, a **"we decide" signpost**, a
+**polaroid gallery**, a **drawing easel**, a **little park with two blobs
+tied by a ribbon**, and a **debate stage**. Scroll/drag pans the
 street, clicking a machine dollies the camera in (GSAP). Street lighting
 follows *your local time* — warm day, lilac dusk, starry night — computed
 live, never stored. A plain-text top nav and a 2D **lite mode** street cover
@@ -85,16 +87,44 @@ No AI judges anywhere — your partner is the judge:
    the shared clock) and a 30-second emoji memory-match race (identical
    seeded boards). Adding a game is one entry in
    [`src/components/activities/arcade/games.ts`](src/components/activities/arcade/games.ts).
+5. **we decide** — the consensus quiz: same question on both screens, private
+   lock-in, simultaneous reveal. Agree → it's official. Disagree → a
+   30-second on-camera "convince me" round and a timed re-vote (or you
+   lovingly agree to disagree). Every verdict composites into a photo-strip
+   styled **manifesto card** you can download/share.
+6. **who'd pick this?** — 4 random internet pictures (houses, puppies,
+   wedding cakes…) hit both screens; one of you secretly favorites one, the
+   other bets on which. Wrong guess = 15 seconds of on-camera taste
+   defense. Best of 10 with streak bonuses; every chosen picture collages
+   into a **dream board** at the end.
+7. **the hangout** — the do-anything room: both webcams up plus a toolbelt of
+   shared tools — one canvas with two live cursors, a shared notepad, a
+   decision wheel, synced dice + coin, image roulette as a conversation
+   prompt, and a launcher into everything else without dropping the room.
+8. **tied together** — a co-op physics platformer: two blobs (each wearing a
+   webcam selfie face) joined by an elastic ribbon. Host runs the only
+   Matter.js engine; the guest streams inputs and renders interpolated
+   snapshots. Three levels — a pendulum swing, pressure-plate doors, a
+   counterweight lift. Fails boing you back and increment the giggle
+   counter; nothing is ever at stake.
 
 Every activity ends with a "take a booth pic to remember this?" shortcut that
 drops you both straight into the duo booth.
 
+### random pictures, synced
+[`src/lib/images/`](src/lib/images/images.ts) pulls keyword-tagged random
+images from **loremflickr** (picsum as fallback; Unsplash used automatically
+if you set `NEXT_PUBLIC_UNSPLASH_KEY` — no key required otherwise). In any
+room game the **host resolves the URLs and broadcasts them**, so both people
+are always looking at the same pictures. Every image renders with a shimmer,
+an error fallback, and a cute broken-image card.
+
 ## 🧱 stack
 
 Next.js 15 (App Router) · TypeScript · React Three Fiber + drei · GSAP ·
-Zustand · raw WebGL shaders · PeerJS (WebRTC) · gifenc in a Web Worker ·
-EmailJS · MediaPipe tasks-vision (CDN, lazy). No analytics, no trackers,
-no AI SDKs.
+Zustand · raw WebGL shaders · PeerJS (WebRTC) · Matter.js (rope game) ·
+gifenc in a Web Worker · EmailJS · MediaPipe tasks-vision (CDN, lazy).
+No analytics, no trackers, no AI SDKs.
 
 ## 🚀 getting started
 
@@ -122,6 +152,7 @@ src/
     capture/               # useCamera, frameGrab, modes, smile (MediaPipe)
     export/                # composite (one canvas pipeline = pixel parity),
                            #   deliver (download/share/email), gif.worker
+    images/                # random internet images (host-synced), SyncedImage
     sound/                 # procedural WebAudio SFX (no audio files)
     daynight.ts            # local-time street lighting themes
     device.ts              # WebGL / lite-mode / reduced-motion detection
@@ -131,7 +162,8 @@ src/
     capture/               # CaptureView, FilterRail, ModeDial, poses, burst, gif
     edit/                  # EditScreen, StripPreview, StickerLayer, EditPanel, Email
     activities/            # ActivityHost + RoomGate
-      quiz/  draw/  debate/  arcade/   # each its own lazy chunk
+      quiz/  draw/  debate/  arcade/          # each its own lazy chunk
+      decide/  pick/  hangout/  rope/         # ditto
     duo/                   # DuoLobby (code create/join + accent picker)
     ui/                    # TopBar, Decorations, toast
 ```
@@ -154,10 +186,24 @@ interior, each activity, each arcade game, the GIF worker, PeerJS, MediaPipe.
 Full commentary in [`src/lib/room/clock.ts`](src/lib/room/clock.ts) and
 [`src/lib/room/room.ts`](src/lib/room/room.ts).
 
-> **NAT note:** the free PeerJS cloud does signalling only; a strict
-> corporate/CGNAT network can still block the direct link. The lobby surfaces
-> friendly retry tips (drop VPN, try mobile data). Swapping in your own
-> broker/TURN later = editing `newPeer()` in `src/lib/room/room.ts`.
+> **NAT note:** the free PeerJS cloud does signalling only, and its bundled
+> TURN servers are dead — so `newPeer()` in `src/lib/room/room.ts` ships an
+> explicit ICE config: Google/Metered STUN plus a Metered TURN relay read
+> from `NEXT_PUBLIC_TURN_USERNAME` / `NEXT_PUBLIC_TURN_CREDENTIAL`
+> (free tier at <https://dashboard.metered.ca>, ~500MB relay/month).
+> Without those vars only same-network rooms will connect on CGNAT
+> networks (most mobile carriers). Media through the relay is still
+> end-to-end encrypted (DTLS-SRTP) and never stored.
+
+## 🧩 adding stuff (each one is "add one entry to one file")
+
+| you want a new…    | edit                                                        |
+| ------------------ | ----------------------------------------------------------- |
+| quiz pack          | `src/components/activities/quiz/packs.ts`                    |
+| "we decide" question | `src/components/activities/decide/questions.ts`            |
+| image category     | `src/lib/images/images.ts` → `IMAGE_CATEGORIES`               |
+| arcade game        | `src/components/activities/arcade/games.ts` + one component  |
+| rope level         | `src/components/activities/rope/levels.ts` → `ROPE_LEVELS`    |
 
 ## 💌 EmailJS setup ("email it to yourself")
 
